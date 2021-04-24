@@ -65,7 +65,7 @@ fn read_image_data<T: SerialPort>(port: &mut T, img_width : u32, img_height : u3
     Ok(buf)
 }
 
-fn sync_data<T: SerialPort>(port: &mut T, sync_word: &str) -> io::Result<()> {
+fn sync_data<T: io::Read>(port: &mut T, sync_word: &str) -> io::Result<()> {
     let sync_word_u8 = sync_word.as_bytes().to_vec();
     let mut sync_pos = 0;
     let mut char_buffer = [0];
@@ -73,10 +73,12 @@ fn sync_data<T: SerialPort>(port: &mut T, sync_word: &str) -> io::Result<()> {
 
     while sync_pos < sync_word_u8.len() {
         port.read_exact(&mut char_buffer)?;
+
         let sync_char = char_buffer[0];
         if sync_char == sync_word_u8[sync_pos] {
             sync_pos = sync_pos + 1;
         } else {
+            str.extend(sync_word[.. sync_pos].chars());
             str.push(char::from(sync_char));
             sync_pos = 0;
         }
@@ -102,3 +104,20 @@ fn configure_port<T: SerialPort> (port: &mut T) -> io::Result<()> {
 }
 
 
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_sync_data_when_syncword_present() {
+        let in_data : Vec<u8> = ['T', 'E', 'S', 'T', 'A'].iter().map(|c| *c as u8).collect();
+        assert!(sync_data(&mut in_data.as_slice(), "TEST").is_ok());
+    }
+
+    #[test]
+    fn test_sync_data_when_syncword_not_present() {
+        let in_data : Vec<u8> = ['T', 'E', 'S', 'A'].iter().map(|c| *c as u8).collect();
+        assert!(sync_data(&mut in_data.as_slice(), "TEST").is_err());
+    }
+}
