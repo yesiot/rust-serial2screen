@@ -6,6 +6,7 @@ use show_image::{ImageView, ImageInfo, create_window};
 use std::io;
 use std::time::Duration;
 use serial::prelude::*;
+use std::io::{Read, ErrorKind};
 
 const C_DEFAULT_SYNC_WORD: &'static str = "XXSYNCXX";
 const C_DEFAULT_IMAGE_WIDTH: &'static str = "96";
@@ -66,23 +67,30 @@ fn read_image_data<T: SerialPort>(port: &mut T, img_width : u32, img_height : u3
 }
 
 fn sync_data<T: io::Read>(port: &mut T, sync_word: &str) -> io::Result<()> {
-    let sync_word_u8 = sync_word.as_bytes().to_vec();
+    let sync_word_u8 = sync_word.as_bytes();
     let mut sync_pos = 0;
-    let mut char_buffer = [0];
     let mut str = String::new();
 
     while sync_pos < sync_word_u8.len() {
-        port.read_exact(&mut char_buffer)?;
+        let res = port.bytes().next();
 
-        let sync_char = char_buffer[0];
-        if sync_char == sync_word_u8[sync_pos] {
-            sync_pos = sync_pos + 1;
-        } else {
-            str.extend(sync_word[.. sync_pos].chars());
-            str.push(char::from(sync_char));
-            sync_pos = 0;
+        match res {
+            Some(next_byte) => {
+
+                let valid_byte = next_byte.expect("Read error");
+
+                if valid_byte == sync_word_u8[sync_pos] {
+                    sync_pos = sync_pos + 1;
+                } else {
+                    str.extend(sync_word[..sync_pos].chars());
+                    str.push(valid_byte as char);
+                    sync_pos = 0;
+                }
+            },
+            None => return Err(std::io::Error::new(ErrorKind::Other, "No more data")),
         }
     }
+
     if !str.is_empty() {
         println!("{}", str);
     }
@@ -111,13 +119,13 @@ mod tests {
 
     #[test]
     fn test_sync_data_when_syncword_present() {
-        let in_data : Vec<u8> = ['T', 'E', 'S', 'T', 'A'].iter().map(|c| *c as u8).collect();
-        assert!(sync_data(&mut in_data.as_slice(), "TEST").is_ok());
+        let in_data = [b'T', b'E', b'S', b'T', b'A'];
+        assert!(sync_data(&mut in_data.as_ref(), "TEST").is_ok());
     }
 
     #[test]
     fn test_sync_data_when_syncword_not_present() {
-        let in_data : Vec<u8> = ['T', 'E', 'S', 'A'].iter().map(|c| *c as u8).collect();
-        assert!(sync_data(&mut in_data.as_slice(), "TEST").is_err());
+        let in_data= [b'T', b'E', b'S', b'A'];
+        assert!(sync_data(&mut in_data.as_ref(), "TEST").is_err());
     }
 }
